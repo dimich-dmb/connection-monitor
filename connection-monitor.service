@@ -1,0 +1,9 @@
+[Unit]
+Description=Displays connection on / off notifications
+After=network-online.target
+
+[Service]
+ExecStart=/usr/lib/connection-monitor/connection-monitor
+
+[Install]
+WantedBy=multi-user.target

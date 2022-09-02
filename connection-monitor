@@ -1,0 +1,56 @@
+#!/bin/bash
+
+notify()
+{
+    logger -t "connection-monitor" "$1"
+
+    who | sed -n 's/^\(\S\+\).*(\(:[0-9]\+\))$/\1 \2/p' | \
+        while read USER_NAME DISPLAY_NO; do
+            local USER_ID=$(id -u "$USER_NAME")
+            DISPLAY="${DISPLAY_NO}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${USER_ID}/bus" setpriv --reuid="${USER_ID}" notify-send "$1"
+    done
+}
+
+if [ "$1" == "--test-notification" ] || [ "$1" == "-t" ]; then
+    notify "Network Monitor notify test"
+    exit 0
+fi
+
+. /etc/connection-monitor.conf
+
+if [ -z "${IPCHECK}" ]; then
+    echo "Invalid configuration" >&2
+    exit 1
+fi
+INTERVAL="${INTERVAL:-10}"
+
+QUIT=0
+trap "QUIT=1" SIGINT SIGTERM
+
+# Assume connection is on by default
+OLD_STATE=0
+PERIOD=${INTERVAL}
+
+########## Main loop #######
+while true; do
+    ping -4 -W 1 -c 3 ${IPCHECK} > /dev/null 2>&1
+    NEW_STATE=$?
+
+    if [ "${QUIT}" -ne 0 ]; then break; fi
+
+    if [ ${OLD_STATE} -lt ${NEW_STATE} ]; then
+        # Connection is down
+        notify "Connection is down"
+        PERIOD=0
+    elif [ ${OLD_STATE} -gt ${NEW_STATE} ]; then
+        # Connection is up
+        notify "Connection is up"
+        PERIOD=${INTERVAL}
+    fi
+    OLD_STATE=${NEW_STATE}
+
+    if [ ${PERIOD} -ne 0 ]; then sleep ${PERIOD}; fi
+    if [ "${QUIT}" -ne 0 ]; then break; fi
+done
+
+echo "Terminated"
